@@ -64,6 +64,7 @@ claude-code-mods/
 │   ├── api-cheatsheet.md     # events, $ nouns, UI elements
 │   └── troubleshooting.md
 ├── mod-builder-prompt/       # 🤖 a prompt that makes Claude build mods for you
+└── assets/                   # 🖼️ social preview (HTML source + PNG)
 ```
 
 Every mod is the same four small files:
