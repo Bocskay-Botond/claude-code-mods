@@ -1,0 +1,22 @@
+{
+  "categories": [
+    {
+      "id": "ai",
+      "name": "AI & Agents",
+      "color": "magenta",
+      "projects": [
+        { "id": "assistant", "name": "Home Assistant", "dir": "projects/assistant", "note": "Multi-agent assistant with a FastAPI dashboard" },
+        { "id": "voice", "name": "Voice Wake-up", "dir": "projects/voice", "note": "Wake word -> STT -> LLM -> TTS" }
+      ]
+    },
+    {
+      "id": "web",
+      "name": "Websites",
+      "color": "green",
+      "projects": [
+        { "id": "booking", "name": "Booking App", "dir": "projects/booking", "note": "Node/Express/SQLite appointment booking", "live": true },
+        { "id": "landing", "name": "Landing Page", "dir": "projects/landing", "note": "GSAP-animated landing page" }
+      ]
+    }
+  ]
+}

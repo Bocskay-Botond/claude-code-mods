@@ -1,0 +1,1 @@
+{ "name": "pixel-buddy", "version": "1.0.0", "author": { "name": "Botond" }, "description": "A pixel Claude critter above the prompt that reacts to typing, working, finishing and going AFK.", "types": "./types/index.d.ts" }

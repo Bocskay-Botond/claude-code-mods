@@ -1,0 +1,1 @@
+{ "name": "project-box", "version": "1.0.0", "author": { "name": "Botond" }, "description": "A folder-tree card beside the status bar listing your projects by category, read from ~/.claude/project-box.json.", "types": "./types/index.d.ts" }

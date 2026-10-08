@@ -1,0 +1,1 @@
+{ "name": "tristens-tools", "version": "1.0.0", "author": { "name": "Botond" }, "description": "Tools menu for Claude Code: Clean View, Prompt Upgrade, model/effort control panel, Agent Dock, Roadtrip minigame.", "types": "./types/index.d.ts" }

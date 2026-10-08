@@ -1,0 +1,12 @@
+{
+  "name": "claude-code-mods",
+  "description": "Fun, useful Claude Code mods: a pixel critter, a tools menu with Agent Dock, a project box and a status bar.",
+  "owner": { "name": "Botond" },
+  "plugins": [
+    { "name": "pixel-buddy", "source": "./mods/pixel-buddy" },
+    { "name": "tristens-tools", "source": "./mods/tristens-tools" },
+    { "name": "project-box", "source": "./mods/project-box" },
+    { "name": "statusbar", "source": "./mods/statusbar" },
+    { "name": "hello-mod", "source": "./examples/hello-mod" }
+  ]
+}
