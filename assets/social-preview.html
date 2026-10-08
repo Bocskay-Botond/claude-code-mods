@@ -1,0 +1,145 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;800&family=Inter:wght@500;700;900&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #141413; --panel: #1e1d1b; --line: #33312d; --cream: #f0eee6; --dim: #8a877f;
+    --orange: #d97757; --gold: #f5c26b; --green: #2fd27a; --purple: #a06bd6; --blue: #6fa8dc; --pink: #e0607e;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 1280px; height: 640px; overflow: hidden; background: var(--bg); }
+  body {
+    font-family: Inter, sans-serif; color: var(--cream); position: relative;
+    background:
+      radial-gradient(900px 500px at 15% 110%, rgba(217,119,87,.20), transparent 60%),
+      radial-gradient(700px 420px at 100% -10%, rgba(160,107,214,.16), transparent 60%),
+      var(--bg);
+  }
+  .grid {
+    position: absolute; inset: 0; opacity: .35;
+    background-image: linear-gradient(var(--line) 1px, transparent 1px), linear-gradient(90deg, var(--line) 1px, transparent 1px);
+    background-size: 32px 32px;
+    mask-image: radial-gradient(800px 500px at 30% 50%, #000 20%, transparent 75%);
+  }
+  .left { position: absolute; left: 72px; top: 44px; width: 560px; }
+  .hero { display: block; margin-bottom: 14px; }
+  .kicker { font-family: 'JetBrains Mono', monospace; font-weight: 600; font-size: 20px; color: var(--orange); letter-spacing: .5px; margin-bottom: 12px; }
+  h1 { font-weight: 900; font-size: 72px; line-height: .98; letter-spacing: -2.5px; }
+  h1 span { color: var(--orange); }
+  .tag { margin-top: 18px; font-size: 23px; line-height: 1.35; color: #c9c6bd; font-weight: 500; }
+  .chips { margin-top: 24px; display: flex; flex-wrap: wrap; gap: 10px; }
+  .chip { font-family: 'JetBrains Mono', monospace; font-size: 17px; font-weight: 600; padding: 8px 14px; border-radius: 999px; border: 1.5px solid var(--line); background: rgba(255,255,255,.03); }
+  .chip i { font-style: normal; margin-right: 6px; }
+  .url { position: absolute; right: 64px; bottom: 50px; font-family: 'JetBrains Mono', monospace; font-size: 18px; color: var(--dim); }
+  .url b { color: var(--cream); font-weight: 600; }
+
+  .term {
+    position: absolute; right: 64px; top: 92px; width: 540px; height: 456px;
+    background: var(--panel); border: 1.5px solid var(--line); border-radius: 16px;
+    box-shadow: 0 30px 80px rgba(0,0,0,.55), 0 0 0 1px rgba(255,255,255,.02) inset;
+    font-family: 'JetBrains Mono', monospace; font-size: 14.5px; overflow: hidden;
+  }
+  .bar { height: 40px; display: flex; align-items: center; gap: 8px; padding: 0 16px; border-bottom: 1.5px solid var(--line); }
+  .dot { width: 12px; height: 12px; border-radius: 50%; }
+  .bar .title { margin-left: 12px; color: var(--dim); font-size: 13px; }
+  .body { padding: 18px 20px; }
+  .msg { color: var(--dim); line-height: 1.6; }
+  .msg .u { color: var(--cream); }
+  .msg .ok { color: var(--green); }
+  .band { position: absolute; left: 20px; right: 20px; bottom: 74px; height: 150px; }
+  .box {
+    position: absolute; right: 0; bottom: 30px; width: 190px; border: 1.5px solid #4a4741; border-radius: 10px;
+    padding: 8px 12px; line-height: 1.55; font-size: 13.5px;
+  }
+  .status { position: absolute; left: 0; bottom: 0; right: 0; font-size: 13px; white-space: nowrap; color: var(--dim); }
+  .prompt {
+    position: absolute; left: 20px; right: 20px; bottom: 18px; height: 42px; border: 1.5px solid #4a4741; border-radius: 10px;
+    display: flex; align-items: center; padding: 0 14px; color: var(--cream);
+  }
+  .caret { display: inline-block; width: 9px; height: 18px; background: var(--orange); margin-left: 2px; vertical-align: -3px; }
+  .critter-small { position: absolute; left: 0; bottom: 30px; }
+  .float { position: absolute; font-family: 'JetBrains Mono', monospace; font-weight: 800; }
+</style>
+</head>
+<body>
+<div class="grid"></div>
+
+<div class="left">
+  <svg class="hero" id="hero" width="280" height="112"></svg>
+  <div class="kicker">// Claude Code just got mods</div>
+  <h1>claude-code<span>-</span><br><span>mods</span></h1>
+  <div class="tag">Make your terminal come alive: a pixel buddy, an Agent Dock, a project box &amp; a guide to build yours.</div>
+  <div class="chips">
+    <div class="chip"><i>🐾</i>pixel-buddy</div>
+    <div class="chip"><i>🛠️</i>tristens-tools</div>
+    <div class="chip"><i>📁</i>project-box</div>
+    <div class="chip"><i>📊</i>statusbar</div>
+  </div>
+</div>
+<div class="url">github.com/<b>Bocskay-Botond/claude-code-mods</b></div>
+
+<div class="term">
+  <div class="bar">
+    <div class="dot" style="background:#ff5f57"></div><div class="dot" style="background:#febc2e"></div><div class="dot" style="background:#28c840"></div>
+    <div class="title">claude — ~/projects</div>
+  </div>
+  <div class="body">
+    <div class="msg"><span class="u">&gt; make me a pomodoro mod 🍅</span></div>
+    <div class="msg">● Writing pomodoro/hooks/register.tsx</div>
+    <div class="msg">● claude plugin test … <span class="ok">1 pass ✓</span></div>
+    <div class="msg"><span class="u">Done. Hot-reloaded into your session.</span></div>
+  </div>
+  <div class="band">
+    <svg class="critter-small" id="small" width="200" height="64"></svg>
+    <div class="box">
+      <div><b style="color:var(--cream)">◆ Projects</b> <span style="color:var(--dim)">7</span></div>
+      <div><span style="color:#d36ad6">▸</span> AI &amp; Agents</div>
+      <div><span style="color:var(--green)">▾</span> Websites</div>
+      <div style="color:var(--dim)">&nbsp;├ <span style="color:var(--green)">●</span> <span style="color:var(--cream)">Booking App</span></div>
+      <div style="color:var(--dim)">&nbsp;└ ◇ Landing Page</div>
+    </div>
+    <div class="status">
+      <span style="color:var(--green)">◆</span> <span style="color:var(--cream)">Subscription</span> │
+      <span style="color:var(--blue)">◆</span> <b style="color:var(--cream)">Opus 5.5</b> │ effort <b style="color:var(--gold)">high</b> │ ctx <span style="color:var(--green)">▰▰▰▱▱▱</span> <b style="color:var(--green)">31%</b>
+    </div>
+  </div>
+  <div class="prompt">&gt;&nbsp;<span class="caret"></span></div>
+</div>
+
+<script>
+  // Same sprite as mods/pixel-buddy: 12x4 critter + side-view laptop, typing pose.
+  const O = '#d97757', EYE = '#1c1c1c', LID = '#5d6169', KEYS = '#a7adb5', LIT = '#cfe8ff', GOLD = '#f5c26b'
+  const px = []
+  const put = (x, y, c) => px.push([x, y, c])
+  for (let y = 0; y <= 2; y++) for (let x = 2; x <= 9; x++) put(x, y, O)
+  put(1, 1, O); put(0, 1, O)      // left arm (tapL)
+  put(10, 2, O); put(11, 2, O)    // right arm
+  put(4, 1, EYE); put(9, 1, EYE)  // eyes looking right
+  for (const lx of [2, 4, 7, 9]) put(lx, 3, O)
+  for (let x = 12; x <= 17; x++) put(x, 3, KEYS)
+  for (let y = 1; y <= 3; y++) put(18, y, LID)
+  put(19, 0, LID); put(17, 0, LIT); put(17, 1, LIT)
+  put(12, 2, O)                   // tapping key
+  const draw = (id, s, oy, extra) => {
+    const svg = document.getElementById(id)
+    const ns = 'http://www.w3.org/2000/svg'
+    for (const [x, y, c] of px) {
+      const r = document.createElementNS(ns, 'rect')
+      r.setAttribute('x', x * s); r.setAttribute('y', oy + y * 2 * s); r.setAttribute('width', s); r.setAttribute('height', 2 * s); r.setAttribute('fill', c)
+      svg.appendChild(r)
+    }
+    for (const [t, x, y, c, fs] of extra) {
+      const tx = document.createElementNS(ns, 'text')
+      tx.setAttribute('x', x); tx.setAttribute('y', y); tx.setAttribute('fill', c)
+      tx.setAttribute('font-family', 'JetBrains Mono'); tx.setAttribute('font-weight', '800'); tx.setAttribute('font-size', fs)
+      tx.textContent = t
+      svg.appendChild(tx)
+    }
+  }
+  draw('hero', 11, 22, [['{', 196, 22, GOLD, 24], ['}', 222, 12, '#8a8a8a', 18], ['<>', 236, 30, GOLD, 16]])
+  draw('small', 7, 8, [['✦', 150, 14, GOLD, 15], ['k', 168, 8, '#8a8a8a', 12]])
+</script>
+</body>
+</html>

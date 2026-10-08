@@ -1,3 +1,5 @@
+![claude-code-mods](assets/social-preview.png)
+
 # 🧩 Claude Code Mods: Make Your Terminal Come Alive
 
 Claude Code now has **mods**: plugins made of TypeScript function hooks that can draw UI right inside the terminal, react to everything Claude does, and change how it works. This repo contains four mods I use every day. There's a pixel critter that lives above your prompt, a control panel for model, effort and parallel agents, a project launcher box, and a live status bar. It also has everything you need to **build your own** in about 10 minutes.
@@ -61,7 +63,7 @@ claude-code-mods/
 │   ├── writing-your-own-mod.md
 │   ├── api-cheatsheet.md     # events, $ nouns, UI elements
 │   └── troubleshooting.md
-└── mod-builder-prompt/       # 🤖 a prompt that makes Claude build mods for you
+├── mod-builder-prompt/       # 🤖 a prompt that makes Claude build mods for you
 ```
 
 Every mod is the same four small files:
