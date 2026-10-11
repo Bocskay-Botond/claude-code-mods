@@ -4,6 +4,8 @@
 
 Claude Code now has **mods**: plugins made of TypeScript function hooks that can draw UI right inside the terminal, react to everything Claude does, and change how it works. This repo contains four mods I use every day. There's a pixel critter that lives above your prompt, a control panel for model, effort and parallel agents, a project launcher box, and a live status bar. It also has everything you need to **build your own** in about 10 minutes.
 
+![pixel-buddy walking, typing on its laptop and blowing bubbles above the Claude Code prompt](assets/pixel-buddy.gif)
+
 [![Claude Code](https://img.shields.io/badge/Claude%20Code-2.1.294+-D97757?style=for-the-badge&logo=anthropic&logoColor=white)](https://claude.com/claude-code)
 [![TypeScript](https://img.shields.io/badge/TypeScript-mods-3178C6?style=for-the-badge&logo=typescript&logoColor=white)](docs/writing-your-own-mod.md)
 [![License: MIT](https://img.shields.io/badge/License-MIT-2fd27a?style=for-the-badge)](LICENSE)
@@ -27,6 +29,10 @@ Want the full setup? 👉 **[quick-start/](quick-start/README.md)**
 ---
 
 ## 🎮 What's Included
+
+All four running together: the status bar, pixel-buddy, project-box and the Tristen's Tools menu.
+
+![statusbar, pixel-buddy, project-box and tristens-tools running together in Claude Code](assets/full-setup.gif)
 
 | Mod | What it does | Commands |
 |---|---|---|
@@ -64,7 +70,7 @@ claude-code-mods/
 │   ├── api-cheatsheet.md     # events, $ nouns, UI elements
 │   └── troubleshooting.md
 ├── mod-builder-prompt/       # 🤖 a prompt that makes Claude build mods for you
-└── assets/                   # 🖼️ social preview (HTML source + PNG)
+└── assets/                   # 🖼️ social preview + demo GIFs
 ```
 
 Every mod is the same four small files:
