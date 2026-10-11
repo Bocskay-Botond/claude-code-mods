@@ -39,9 +39,9 @@ export const register: Register = on => {
     const isWorking = b.phase === 'working'
 
     return (
-      <Box>
+      <Box flexWrap="wrap">
         <Text color={isWorking ? 'yellow' : 'green'}>{isWorking ? '● working' : '○ idle'}</Text>
-        <Text dimColor>
+        <Text dimColor wrap="truncate-end">
           {' │ '}tools {b.tools}
           {b.lastTool ? ` (${b.lastTool})` : ''}
           {' │ '}last turn {b.seconds}s

@@ -36,11 +36,18 @@ All four running together: the status bar, pixel-buddy, project-box and the Tris
 
 | Mod | What it does | Commands |
 |---|---|---|
-| 🐾 **[pixel-buddy](mods/pixel-buddy)** | A 12×4 pixel Claude critter above the prompt. It types on a tiny laptop while you type, patrols while Claude works, celebrates when a turn finishes, plays (keepy-uppy, jump rope, butterflies, bubbles, reading) when you're idle, and falls asleep after 3 minutes. | `/buddy` `/pet` |
+| 🐾 **[pixel-buddy](mods/pixel-buddy)** | A 12×4 pixel Claude critter above the prompt. It types on a tiny laptop while you type, patrols while Claude works, celebrates when a turn finishes, plays when you're idle (football with a goal, dancing, jump rope, butterflies, bubbles, reading a book), reacts to greetings, thanks, commits, pushes and tool-call combos, and falls asleep after 3 minutes. Now and then a shot misses and knocks project-box apart, and the box rebuilds itself. | `/buddy` `/pet` |
 | 🛠️ **[tristens-tools](mods/tristens-tools)** | A tools menu and status line: **model & effort picker**, **Clean View** (hides tool noise and shows a simple checklist), **Prompt Upgrade**, **Agent Dock** (split each request across 1–100 helper agents and watch them live), and a **Roadtrip** racing minigame. | `/tools` `/dock` `/roadtrip` |
-| 📁 **[project-box](mods/project-box)** | A folder-tree card beside the status bar listing your projects by category. Click a category, then a project, to see its note and path. pixel-buddy walks over and "types the `cd`" for you. | `/projects` |
+| 📁 **[project-box](mods/project-box)** | A folder-tree card beside the status bar listing your projects by category. Click a category, then a project, to see its note and path. pixel-buddy walks over and "types the `cd`" for you. On a narrow terminal it folds into one row of category buttons. | `/projects` |
 | 📊 **[statusbar](mods/statusbar)** | A minimal one-line status bar: working/idle, tool count, last tool, last turn duration, turns. The simplest real mod in the repo, so read this one first. | — |
 | 👋 **[hello-mod](examples/hello-mod)** | The tutorial example: a slash command, a toast and a band in about 35 lines. | `/hello` |
+
+### What's new in 1.1
+
+- **Works on narrow terminals:** a half-screen window or a phone over SSH (Termius and similar). Every mod lays itself out for the width it gets.
+- **pixel-buddy:** football with a goal (juggle, dribble, shoot, "GOAL!"), a fixed reading pose, cute reactions (greetings, thanks, commit/push, tool combos, sneezes, `/pet` counter, a nightcap after 23:00).
+- **project-box:** stacks above the band on a narrow terminal, publishes its layout for neighbours, and falls apart and rebuilds when pixel-buddy's shot misses.
+- **tristens-tools:** a real Prompt Upgrade (one cheap Haiku call turns your prompt into a working brief), a model switch that sticks, and a status line that shortens on narrow terminals.
 
 Install any of them the same way:
 
@@ -144,6 +151,7 @@ Restart Claude Code (or run `/reload-plugins`) and your projects show up. Colors
 | Nothing appears after install | Run `/reload-plugins`, or restart Claude Code. Make sure you're in a **terminal**: `/plugin` isn't available in the desktop app's Code tab. |
 | `Marketplace file not found` | Check the repo name: `Bocskay-Botond/claude-code-mods` |
 | A mod silently does nothing | Start with `claude --debug`. A failing hook is skipped and logged with the reason. |
+| Small window or phone (SSH) | Every mod adapts to the terminal width. Below about 70 columns project-box stacks above the status rows, pixel-buddy gets a row of its own, and the tristens-tools line shortens. |
 | Two bands fight for space | pixel-buddy, project-box and tristens-tools are designed to stack. Turn things off with `/buddy`, `/projects`, or `/plugin` → disable. |
 
 More: **[docs/troubleshooting.md](docs/troubleshooting.md)**

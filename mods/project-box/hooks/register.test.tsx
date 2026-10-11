@@ -26,3 +26,17 @@ test('a category and a project open and close', async ($, on) => {
     await ui.unmount()
   }
 })
+
+test('on a narrow terminal the card stacks into a row of category buttons', async ($, on) => {
+  on('ui.render', { component: 'AbovePrompt' }, () => ({ type: 'Box', props: {}, children: [] }) as never)
+  const ui = await $.ui.mount({
+    plugin: 'project-box', surface: 'terminal', component: 'AbovePrompt', props: { ...BAND, bodyColumns: 50 } as never,
+    viewport: { columns: 50, rows: 40, isFullscreen: false },
+  })
+  expect(await ui.find({ key: 'close' })).toBeUndefined()
+  await ui.press({ key: 'cat:web' })
+  expect(await ui.find({ key: 'p:booking' })).toBeDefined()
+  await ui.press({ key: 'cat:web' })
+  expect(await ui.find({ key: 'p:booking' })).toBeUndefined()
+  await ui.unmount()
+})

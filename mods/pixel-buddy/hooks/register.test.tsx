@@ -14,3 +14,14 @@ test('critter is drawn above the prompt and /buddy hides it', async ($, on) => {
   expect(await hidden.find({ key: 'buddy' })).toBeUndefined()
   await hidden.unmount()
 })
+
+test('on a narrow terminal the critter still draws, on a row of its own', async ($, on) => {
+  on('ui.render', async ($, e) => {
+    const { Text } = $.ui.resolve(e as never) as { Text: (p: object) => unknown }
+    return (<Text>{''}</Text>) as never
+  })
+  const props = { hasSurvey: false, isWorking: false, maxRows: 20, bodyColumns: 40 }
+  const ui = await $.ui.mount({ plugin: 'pixel-buddy', surface: 'terminal', component: 'AbovePrompt', props } as never)
+  expect(await ui.find({ key: 'buddy' })).toBeDefined()
+  await ui.unmount()
+})

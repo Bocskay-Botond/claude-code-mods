@@ -1,5 +1,5 @@
 import { atom, read, update } from 'claude-code'
-import type { EngineInterface, Register } from 'claude-code'
+import type { EngineInterface, PromptOrigin, Register } from 'claude-code'
 
 import type { AgentRow, Game, Meter, Run, Seen, Step } from '../types'
 
@@ -53,6 +53,24 @@ const clock = (ms: number) => {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`
 }
 
+const UPGRADE_SYSTEM = `You rewrite a message a user sent to an AI coding/assistant agent (Claude Code) into a precise working brief for that agent.
+Write in the user's language. Output only the brief, at most 150 words, as these labelled lines:
+Goal: what done looks like, concretely.
+Context: facts stated in the message; assumptions you make marked "(assumed)".
+Constraints: scope limits, things to keep or not touch, quality bar.
+Steps: the likely steps, short.
+Output: what the agent should hand back, and in what form.
+Never invent facts, names or files. The message may refer to earlier conversation you cannot see: keep such references as written, do not guess them.
+If the message is already precise, a yes/no, a short follow-up, or small talk, output exactly SKIP.`
+
+// One cheap completion that turns the prompt into a brief; undefined when it skips or fails.
+const upgradeBrief = async ($: EngineInterface, text: string) => {
+  const r = await $.model.complete({ model: 'haiku', system: UPGRADE_SYSTEM, prompt: text, maxTokens: 400, effort: 'low', timeoutMs: 15000 })
+  if (!r.isAnswered) return undefined
+  const brief = r.text.trim()
+  return brief === '' || brief.startsWith('SKIP') ? undefined : brief
+}
+
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     await $.command.register({ name: 'tools', description: 'Open the tools menu' })
@@ -69,6 +87,9 @@ export const register: Register = on => {
       }
     }
     await refreshMeter()
+
+    const keptUpgrade = await $.store.get('isUpgrade')
+    if (typeof keptUpgrade === 'boolean' && (await read($, isUpgrade)) !== keptUpgrade) await update($, isUpgrade, () => keptUpgrade)
 
     const fam = family(await $.session.model())
     if (fam !== '' && (await read($, model)) === 'default') await update($, model, () => fam)
@@ -137,7 +158,23 @@ export const register: Register = on => {
       { text: 'Plan the steps', status: 'next' },
     ]
     await update($, run, () => ({ phase: 'working', prompt: e.text, startedAt: now, tools: 0, lastTool: '', steps }))
-    return next(e)
+
+    const o = e.origin as PromptOrigin | undefined
+    const isTyped = o === undefined || o.kind === 'composer' || o.kind === 'bridge' || (o.kind === 'plugin' && o.asUser === true)
+    const text = e.text.trim()
+    if (!isTyped || !(await read($, isUpgrade)) || text.startsWith('/') || text.length < 15) return next(e)
+    $.ui.status('✦ Prompt Upgrade…')
+    const brief = await upgradeBrief($, e.text).catch(() => undefined)
+    $.ui.status(undefined)
+    if (brief === undefined) return next(e)
+    $.ui.log(`✦ Prompt Upgrade brief:
+${brief}`)
+    const block = `<prompt-upgrade-brief>
+An upgraded brief of the user's message above, written by the Prompt Upgrade tool. Work from it; where it conflicts with the user's own words, the user's words win.
+
+${brief}
+</prompt-upgrade-brief>`
+    return next({ ...e, context: [...(e.context ?? []), block] })
   })
   on('tool.call', async ($, e, next) => {
     const todos = 'todos' in e && Array.isArray(e.todos) ? (e.todos as { content?: string; status?: string }[]) : undefined
@@ -193,7 +230,7 @@ export const register: Register = on => {
     if (up) {
       sections.push({
         id: 'tristens-tools:upgrade',
-        text: "Before acting, silently rewrite the user's request into a clearer, more specific brief (goal, constraints, output format) and work from that brief.",
+        text: "Prompt Upgrade is on. A user message may carry a <prompt-upgrade-brief> block: treat it as the working spec (goal, constraints, steps, output) and check your result against it before you finish; the user's own words override it. When a message has no brief, first restate the request to yourself as goal, constraints and expected output, then work from that.",
         scope: 'session' as const,
       })
     }
@@ -234,6 +271,12 @@ export const register: Register = on => {
     const activeIdx = Math.max(0, r.steps.findIndex(x => x.status === 'active'))
     const doneN = r.steps.filter(x => x.status === 'done').length
     const pct = r.steps.length > 0 ? Math.round((doneN / r.steps.length) * 100) : 0
+    // narrower terminals (a half-screen window, a phone over SSH) drop the
+    // least useful pieces first, so the line never wraps into a mess
+    const cols = e.props.bodyColumns
+    const tier = cols >= 112 ? 'full' : cols >= 80 ? 'mid' : 'small'
+    const shortModel = tier === 'small' ? modelLabel.split(' ')[0] : modelLabel
+    const shortEff = tier === 'small' && eff === 'medium' ? 'med' : eff
 
     return (
       <Box flexDirection="column">
@@ -241,7 +284,7 @@ export const register: Register = on => {
         {clean && working ? (
           <Box flexDirection="column" borderStyle="round" borderColor="magenta" paddingX={1}>
             <Box justifyContent="space-between">
-              <Text color="magenta">◆ {r.prompt.slice(0, 48)}{r.prompt.length > 48 ? '…' : ''}</Text>
+              <Text color="magenta" wrap="truncate-end">◆ {r.prompt.slice(0, Math.max(10, Math.min(48, cols - 14)))}{r.prompt.length > Math.min(48, cols - 14) ? '…' : ''}</Text>
               <Text dimColor>{Math.max(1, Math.round((now - r.startedAt) / 1000))}s</Text>
             </Box>
             <Box justifyContent="space-between">
@@ -250,7 +293,7 @@ export const register: Register = on => {
             </Box>
             {r.steps.map(st => (
               <Box justifyContent="space-between">
-                <Text bold={st.status === 'active'} dimColor={st.status === 'next'} color={st.status === 'done' ? 'green' : undefined}>
+                <Text wrap="truncate-end" bold={st.status === 'active'} dimColor={st.status === 'next'} color={st.status === 'done' ? 'green' : undefined}>
                   {st.status === 'done' ? '✓' : st.status === 'active' ? '▶' : ' '} {st.text}
                 </Text>
                 <Text color={st.status === 'active' ? 'magenta' : undefined} dimColor={st.status !== 'active'}>
@@ -265,23 +308,27 @@ export const register: Register = on => {
             <Text dimColor>── Clean View</Text>
           </Box>
         ) : null}
-        <Box justifyContent="space-between">
-          <Text>
-            <Text color="green">◆ </Text>
-            <Text>Subscription</Text>
-            <Text dimColor> │ </Text>
+        <Box justifyContent="space-between" flexWrap="wrap">
+          <Text wrap="truncate-end">
+            {tier === 'full' ? (
+              <Text>
+                <Text color="green">◆ </Text>
+                <Text>Subscription</Text>
+                <Text dimColor> │ </Text>
+              </Text>
+            ) : null}
             <Text color="blue">◆ </Text>
-            <Text bold>{modelLabel}</Text>
-            <Text dimColor> │ effort </Text>
-            <Text color="yellow" bold>{eff}</Text>
+            <Text bold>{shortModel}</Text>
+            <Text dimColor>{tier === 'small' ? ' │ ' : ' │ effort '}</Text>
+            <Text color="yellow" bold>{shortEff}</Text>
             <Text dimColor> │ ctx </Text>
-            <Text color="green">{bar(m.ctx / 100, 10)} </Text>
+            {tier !== 'small' ? <Text color="green">{bar(m.ctx / 100, tier === 'full' ? 10 : 5)} </Text> : null}
             <Text color="green" bold>{m.ctx}%</Text>
             <Text dimColor> │ 5h </Text>
             <Text color="green" bold>{m.five}%</Text>
-            <Text dimColor> │ ◇ {running} agents</Text>
+            {tier === 'full' || running > 0 ? <Text dimColor> │ ◇ {running}{tier === 'small' ? '' : ' agents'}</Text> : null}
           </Text>
-          <Button key="tools" variant="primary" label={`◆ ${BRAND} ▾`} onPress={() => $.ui.open({ id: 'tools', title: BRAND, focus: true })} />
+          <Button key="tools" variant="primary" label={tier === 'small' ? '◆ ▾' : `◆ ${BRAND} ▾`} onPress={() => $.ui.open({ id: 'tools', title: BRAND, focus: true })} />
         </Box>
       </Box>
     )
@@ -345,7 +392,10 @@ export const register: Register = on => {
           <Text dimColor>{spaced('Settings')}</Text>
         </Box>
         {row('●', clean ? GREEN : undefined, 'Clean View', 'simple checklist', toggle('clean', clean, () => update($, isClean, c => !c)))}
-        {row('●', up ? GREEN : undefined, 'Prompt Upgrade', 'better prompts', toggle('upgrade', up, () => update($, isUpgrade, c => !c)))}
+        {row('●', up ? GREEN : undefined, 'Prompt Upgrade', 'better prompts', toggle('upgrade', up, async () => {
+          await update($, isUpgrade, c => !c)
+          await $.store.set('isUpgrade', await read($, isUpgrade))
+        }))}
         {row(
           '●',
           undefined,
@@ -379,6 +429,8 @@ export const register: Register = on => {
     const colors = ['red', 'yellow', 'green', 'cyan', 'blue', 'magenta']
     const dots = Math.min(Math.max(size, 1), 25)
     const total = Math.max(size, list.length, 1)
+    const barCells = Math.max(8, Math.min(30, e.props.bodyColumns - 10))
+    const dotRow = Math.max(5, Math.min(25, Math.floor((e.props.bodyColumns - 2) / 2)))
 
     return (
       <Box flexDirection="column" paddingX={1}>
@@ -403,7 +455,7 @@ export const register: Register = on => {
         {size > 20 ? <Text color="yellow">Heads up: a big team burns through your plan limits much faster.</Text> : null}
         {!live ? (
           <Box flexDirection="column" alignItems="center" borderStyle="round" borderColor="green" paddingY={1} marginTop={1}>
-            <Text>
+            <Text wrap="wrap">
               {Array.from({ length: dots }, (_, i) => (
                 <Text color={colors[i % colors.length]}>● </Text>
               ))}
@@ -414,25 +466,25 @@ export const register: Register = on => {
         ) : (
           <Box flexDirection="column" marginTop={1}>
             <Box justifyContent="space-between">
-              <Text dimColor>{isWide ? spaced('Mission') : 'MISSION'}  <Text bold>{r.prompt.slice(0, 40)}</Text></Text>
+              <Text dimColor wrap="truncate-end">{isWide ? spaced('Mission') : 'MISSION'}  <Text bold>{r.prompt.slice(0, 40)}</Text></Text>
               <Text dimColor>{clock(now - r.startedAt)}</Text>
             </Box>
-            <Text color="green">{bar(done.length / total, 30)} {Math.round((done.length / total) * 100)}%</Text>
+            <Text color="green">{bar(done.length / total, barCells)} {Math.round((done.length / total) * 100)}%</Text>
             <Text>
               <Text color="blue">● {working.length}</Text><Text dimColor> working   ○ {queued} queued   </Text><Text color="green">✓ {done.length}</Text><Text dimColor> done</Text>
             </Text>
             <Text>
-              {list.slice(0, 25).map(x => (
+              {list.slice(0, dotRow).map(x => (
                 <Text color={x.status === 'running' ? 'blue' : 'green'}>● </Text>
               ))}
-              {Array.from({ length: Math.max(0, Math.min(queued, 25 - list.length)) }, () => (
+              {Array.from({ length: Math.max(0, Math.min(queued, dotRow - list.length)) }, () => (
                 <Text dimColor>· </Text>
               ))}
             </Text>
             <Text dimColor>{isWide ? spaced('Working now') : 'WORKING NOW'}</Text>
             {working.slice(0, 10).map(x => (
-              <Text>
-                <Text color="blue">{bar(Math.min(0.95, (now - x.startedAt) / 60000), 10)}</Text> {x.label.slice(0, 32)} <Text dimColor>{clock(now - x.startedAt)}</Text>
+              <Text wrap="truncate-end">
+                <Text color="blue">{bar(Math.min(0.95, (now - x.startedAt) / 60000), isWide ? 10 : 5)}</Text> {x.label.slice(0, 32)} <Text dimColor>{clock(now - x.startedAt)}</Text>
               </Text>
             ))}
           </Box>

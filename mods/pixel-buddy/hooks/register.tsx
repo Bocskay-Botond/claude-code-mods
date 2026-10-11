@@ -1,18 +1,23 @@
 import { atom, read, update } from 'claude-code'
 import type { Register } from 'claude-code'
 
+import type { Bump } from '../types'
+
 // A 12x4 pixel critter drawn with quadrant blocks (one cell = 2x2 pixels, so
 // a leg is one pixel: half a column), on a stage of `width` columns, 4 rows.
 const isShown = atom({ plugin: 'pixel-buddy', key: 'isShown' } as const, true)
+// A missed shot that hits the project box: project-box reads this and draws
+// its card shaken, scattered, then rebuilding row by row (step 0..10).
+const bump = atom({ plugin: 'pixel-buddy', key: 'bump' } as const, { phase: 'none', step: 0 } as Bump)
 
-// The project box (project-box) beside the status bar: read (never written) so the
+// The project-box box beside the status bar: read (never written) so the
 // critter can walk up to it and react when it opens, picks or hides.
 const projCat = atom({ plugin: 'project-box', key: 'openCat' } as const, '')
 const projPick = atom({ plugin: 'project-box', key: 'openProject' } as const, '')
 const projHidden = atom({ plugin: 'project-box', key: 'isHidden' } as const, false)
-// its card widths, as project-box lays them out (closed / open cap)
-const PROJ_NARROW = 24
-const PROJ_WIDE = 46
+// its card widths (closed / open cap), as project-box publishes them; the
+// fallback is for a project-box too old to publish them
+const projLayout = atom({ plugin: 'project-box', key: 'layout' } as const, { narrow: 24, wide: 46, stack: 0 })
 type ProjEvent = 'open' | 'close' | 'pick' | 'hide' | 'show'
 const PROJ_LEN: Record<ProjEvent, number> = { open: 3800, close: 2500, pick: 5500, hide: 2500, show: 3200 }
 
@@ -28,13 +33,38 @@ const KEYS = 0xa7adb5
 const SCREEN = 0x6fa8dc
 const SCREEN_LIT = 0xcfe8ff
 const BALL = 0xf2f2f2
+const POST = 0xf2f2f2
+const NET = 0x6f7378
 const ROPE = 0xd8d8d8
 const PAGE = 0xf4efe6
 const FOLD = 0xc9bfae
 const WING_A = 0xf5c26b
 const WING_B = 0xe0607e
 const BUBBLE = 0x9fd3ff
+const CAP = 0x4a6fd1
+const POMPOM = 0xf2f2f2
+const SWEAT = 0x9fd3ff
+const RED = 0xe0605e
 const NONE = 0x01000000
+
+// Short one-off reactions layered over whatever the critter is doing.
+type Emote = 'hello' | 'thanks' | 'night' | 'oops' | 'commit' | 'push' | 'combo' | 'sneeze' | 'hiccup' | 'love'
+const EMOTE_LEN: Record<Emote, number> = {
+  hello: 2500, thanks: 3000, night: 2500, oops: 1400, commit: 2400, push: 2200, combo: 1600, sneeze: 1400, hiccup: 900, love: 3500,
+}
+const COMBOS = [10, 25, 50, 100]
+const hourOf = (now: number) => new Date(now).getHours()
+const isNightAt = (now: number) => hourOf(now) >= 23 || hourOf(now) < 5
+
+// What a prompt says to the critter, if anything: a greeting, thanks, good night.
+const greetingOf = (text: string): Emote | undefined => {
+  const t = ` ${text.toLowerCase().replace(/[!?.,:;()'"]/g, ' ')} `
+  const has = (...words: string[]) => words.some(w => t.includes(` ${w} `))
+  if (has('jó éjt', 'jo ejt', 'jóéjt', 'jó éjszakát', 'good night', 'gn')) return 'night'
+  if (has('köszi', 'köszike', 'köszönöm', 'kösz', 'koszi', 'thanks', 'thx', 'ty', 'thank you')) return 'thanks'
+  if (has('szia', 'sziasztok', 'helló', 'hello', 'hali', 'hi', 'hey', 'csá', 'cső', 'jó reggelt')) return 'hello'
+  return undefined
+}
 
 const ROWS = 4
 const PH = ROWS * 2
@@ -45,12 +75,13 @@ const FRAME_MS = 40 // repaint rate: 25 fps
 const PLAY_MS = 20_000 // quiet this long: start playing
 const PLAY_LEN = 12_000 // each game lasts this long
 const SLEEP_MS = 180_000 // quiet this long: fall asleep
-const PLAYS = ['keepy', 'dance', 'rope', 'butterfly', 'read', 'bubbles', 'visit'] as const
+const PLAYS = ['football', 'dance', 'rope', 'butterfly', 'read', 'bubbles', 'visit'] as const
 
 type Eyes = 'center' | 'left' | 'right' | 'closed'
-type Arms = 'down' | 'up' | 'waveL' | 'waveR' | 'tapL' | 'tapR'
-type Pose = { eyes: Eyes; arms: Arms; legs: 0 | 1; squash: boolean }
-type Label = { x: number; row: number; text: string; color: number }
+type Arms = 'down' | 'up' | 'waveL' | 'waveR' | 'tapL' | 'tapR' | 'hold'
+type Pose = { eyes: Eyes; arms: Arms; legs: 0 | 1; squash: boolean; cap?: boolean; blush?: boolean }
+// isOver: drawn over pixels too (text that must stay whole, like a tool name)
+type Label = { x: number; row: number; text: string; color: number; isOver?: boolean }
 type Dot = { x: number; y: number; color: number }
 
 // ---- animation state (module-local: a reload just restarts the critter) ----
@@ -79,6 +110,8 @@ const s = {
   projCat: '',
   projPick: '',
   projHidden: false,
+  // the box sits beside the stage (not hidden, not stacked above on a narrow terminal)
+  isBoxBeside: true,
   projEvent: 'open' as ProjEvent,
   projArg: '',
   projAt: -1e9,
@@ -86,6 +119,15 @@ const s = {
   // the run to (or from) the project box: eased from `from` to `to`
   trip: { at: -1, from: 0, to: 0, start: 0, dur: 0 },
   prevNow: 0,
+  bumpWant: { phase: 'none', step: 0 } as Bump,
+  bumpSent: 'none:0',
+  fbKey: -1,
+  fbFrom: 0,
+  isFbMiss: false,
+  emote: { kind: 'hello' as Emote, at: -1e9, arg: '' },
+  sleepAfterTurn: false,
+  petStreak: 0,
+  pets: 0,
   seed: 0,
   helloAt: 0,
 }
@@ -132,7 +174,7 @@ const drawCritter = (px: Uint32Array, pw: number, ox: number, oy: number, p: Pos
   const top = p.squash ? 1 : 0
   for (let y = top; y <= 2; y++) for (let x = 2; x <= 9; x++) put(x, y, ORANGE)
   const [left, right] = {
-    down: [1, 1], up: [0, 0], waveL: [0, 1], waveR: [1, 0], tapL: [1, 2], tapR: [1, 1],
+    down: [1, 1], up: [0, 0], waveL: [0, 1], waveR: [1, 0], tapL: [1, 2], tapR: [1, 1], hold: [2, 2],
   }[p.arms] as [number, number]
   // a raised arm points up and out from the shoulder, its hand above the head,
   // so it never lines up with the top of the head
@@ -154,6 +196,16 @@ const drawCritter = (px: Uint32Array, pw: number, ox: number, oy: number, p: Pos
     put(r, 1, EYE)
   }
   for (const lx of p.legs === 0 ? [2, 4, 7, 9] : [3, 5, 6, 8]) put(lx, 3, ORANGE)
+  if (p.blush && p.eyes === 'closed') {
+    put(2, 1, PINK)
+    put(9, 1, PINK)
+  }
+  if (p.cap) {
+    // a floppy nightcap, its tip and pompom drooping to the right
+    for (let x = 3; x <= 8; x++) put(x, top - 1, CAP)
+    for (let x = 5; x <= 9; x++) put(x, top - 2, CAP)
+    put(10, top - 3, POMPOM)
+  }
 }
 
 const render = (w: number, px: Uint32Array, labels: Label[]) => {
@@ -184,7 +236,7 @@ const render = (w: number, px: Uint32Array, labels: Label[]) => {
       const x = l.x + k
       if (x < 0 || x >= w || l.row < 0 || l.row >= ROWS) continue
       const i = (l.row * w + x) * 3
-      if (words[i] !== 0x20) continue
+      if (!l.isOver && words[i] !== 0x20) continue
       words.set([l.text.charCodeAt(k), l.color, NONE], i)
     }
   }
@@ -198,6 +250,7 @@ const modeAt = (now: number) => {
   if (now - s.lastKey < 1900) return 'type' as const
   if (s.trip.at !== s.projAt ? now - s.projAt < 5000 : now < s.projUntil) return 'proj' as const
   if (now - s.lastActive > SLEEP_MS) return 'sleep' as const
+  if (now - s.lastActive > SLEEP_MS - 5000) return 'yawn' as const
   if (now - s.lastActive > PLAY_MS) return 'play' as const
   return 'idle' as const
 }
@@ -217,6 +270,8 @@ const frame = (now: number) => {
   let isTapDown = false
   let shift = 0
   const dots: Dot[] = []
+  // only a missed shot (football, below) drives the project box
+  s.bumpWant = { phase: 'none', step: 0 }
   const ox = Math.round(s.x)
   const cx = () => Math.round(s.x / 2)
   const right = () => cx() + SPRITE_W / 2
@@ -237,7 +292,14 @@ const frame = (now: number) => {
     return true
   }
 
-  if (mode === 'sleep') {
+  if (mode === 'yawn') {
+    // a big stretch and a yawn just before dozing off
+    const t = now - s.lastActive - (SLEEP_MS - 5000)
+    pose.arms = t < 2500 ? 'up' : 'down'
+    pose.eyes = 'closed'
+    lift = t < 1200 ? 1 : 0
+    labels.push({ x: right(), row: 1, text: t < 2500 ? 'yawn' : '…', color: SLEEPY })
+  } else if (mode === 'sleep') {
     pose.squash = true
     pose.eyes = 'closed'
     const phase = Math.floor(now / 600) % 4
@@ -266,6 +328,12 @@ const frame = (now: number) => {
     labels.push({ x: right(), row: 1, text: dots, color: DIM })
     labels.push({ x: right() - 1, row: 0, text: '?', color: GOLD })
   } else if (mode === 'work') {
+    if (now - s.submitAt > 45_000) {
+      // a long one: a sweat drop rolls off, and now and then a sigh
+      const ph = (now % 1200) / 1200
+      dots.push({ x: ox - 1, y: PH - SPRITE_H + Math.floor(ph * 3), color: SWEAT })
+      if (now - s.submitAt > 120_000 && now % 6000 < 1200) labels.push({ x: right(), row: 2, text: 'phew', color: DIM })
+    }
     const patrol = Math.min(maxX, 56)
     if (s.target === s.x || s.target > patrol) s.target = s.x < patrol / 2 ? patrol : 0
     walk(1)
@@ -276,7 +344,7 @@ const frame = (now: number) => {
     else if (tick % 3 === 1) labels.push({ x: back, row: 3, text: '·', color: DIM })
     if (now - s.toolAt < 1500 && s.toolName !== '') {
       // top row: raised hands and hops reach row 1 and would cut the word
-      labels.push({ x: Math.max(0, Math.min(w - s.toolName.length, cx())), row: 0, text: s.toolName, color: GOLD })
+      labels.push({ x: Math.max(0, Math.min(w - s.toolName.length, cx())), row: 0, text: s.toolName, color: GOLD, isOver: true })
     }
   } else if (mode === 'done') {
     const t = (now - s.doneAt) / 1000
@@ -288,24 +356,110 @@ const frame = (now: number) => {
   } else if (mode === 'play') {
     const k = now - s.lastActive - PLAY_MS
     const picked = PLAYS[(s.seed + Math.floor(k / PLAY_LEN)) % PLAYS.length] ?? 'dance'
-    const play = picked === 'visit' && s.projHidden ? 'dance' : picked
+    const play = picked === 'visit' && !s.isBoxBeside ? 'dance' : picked
     const t = k % PLAY_LEN
-    if (play === 'keepy') {
-      // keepy-uppy off the head, counting, until the ball gets away
-      const n = Math.floor(t / 900)
-      if (t < 9900) {
+    if (play === 'football') {
+      // juggle, dribble up to the goal and shoot: a goal, or now and then a
+      // shot over the bar that crashes into the project box
+      const key = Math.floor(k / PLAY_LEN)
+      if (s.fbKey !== key) {
+        s.fbKey = key
+        s.fbFrom = s.x
+        s.isFbMiss = s.isBoxBeside && Math.random() < 0.4
+      }
+      const gx = pw - 16
+      const xk = Math.max(0, Math.min(maxX, gx - 30))
+      const oyG = PH - SPRITE_H
+      const ease = (u: number) => 0.5 - Math.cos(Math.PI * Math.max(0, Math.min(1, u))) / 2
+      const arc = (x0: number, y0: number, x1: number, y1: number, top: number, u: number) =>
+        ({ x: Math.round(x0 + (x1 - x0) * u), y: Math.round(y0 + (y1 - y0) * u - top * 4 * u * (1 - u)), color: BALL })
+      // the goal: front post, crossbar, net at the back (gone once a missed
+      // shot sends the critter running past it to the box)
+      if (!(s.isFbMiss && t >= 9800)) {
+        for (let y = PH - 4; y < PH; y++) dots.push({ x: gx, y, color: POST })
+        for (let x = gx; x <= gx + 4; x++) dots.push({ x, y: PH - 4, color: POST })
+        for (let y = PH - 3; y < PH; y++) dots.push({ x: gx + 4, y, color: NET })
+        dots.push({ x: gx + 2, y: PH - 1, color: NET })
+      }
+      const bx0 = xk + 13
+      // juggle left of the goal: standing at or past the shooting spot (a
+      // narrow window) the critter first walks back to it, ball at its feet
+      const jx = Math.min(s.fbFrom, xk)
+      if (t < 800 && s.fbFrom > jx) {
+        const prev = s.x
+        s.x = s.fbFrom + (jx - s.fbFrom) * ease(t / 800)
+        pose.eyes = 'left'
+        if (Math.abs(s.x - prev) > 0.05) pose.legs = Math.floor(now / 90) % 2 === 0 ? 0 : 1
+        dots.push({ x: Math.max(0, Math.round(s.x) - 2), y: PH - 1, color: BALL })
+      } else if (t < 5400) {
+        // keepy-uppy, counting
+        s.x = jx
+        const n = Math.floor(t / 900)
         const ph = (t % 900) / 900
         lift = ph < 0.12 ? 1 : 0
         pose.arms = n % 2 === 0 ? 'waveL' : 'waveR'
         const h = Math.round(12 * ph * (1 - ph))
-        dots.push({ x: ox + 5 + (n % 2), y: Math.max(0, PH - SPRITE_H - 1 - lift - h), color: BALL })
+        dots.push({ x: Math.round(s.x) + 5 + (n % 2), y: Math.max(0, oyG - 1 - lift - h), color: BALL })
         if (n >= 2) labels.push({ x: right() + 1, row: 0, text: String(n), color: DIM })
-      } else {
-        const d = Math.floor((t - 9900) / 120)
-        dots.push({ x: ox + 12 + d, y: PH - 1, color: BALL })
+      } else if (t < 7400) {
+        // dribble towards the goal, the ball rolling just ahead
+        const u = (t - 5400) / 2000
+        const prev = s.x
+        s.x = jx + (xk - jx) * ease(u)
+        pose.eyes = 'right'
+        if (Math.abs(s.x - prev) > 0.05) pose.legs = Math.floor(now / 90) % 2 === 0 ? 0 : 1
+        dots.push({ x: Math.round(s.x) + 13 + (Math.floor(now / 180) % 2), y: PH - 1, color: BALL })
+      } else if (t < 7900) {
+        // wind up
+        s.x = xk
+        shift = -1
+        pose.eyes = 'right'
+        pose.arms = 'waveL'
+        dots.push({ x: bx0, y: PH - 1, color: BALL })
+      } else if (t < 8900) {
+        // the shot
+        s.x = xk
         pose.eyes = 'right'
         pose.arms = 'up'
-        if (t - 9900 < 900) labels.push({ x: right(), row: 1, text: '!', color: GOLD })
+        lift = t < 8100 ? 1 : 0
+        const u = (t - 7900) / 1000
+        dots.push(s.isFbMiss ? arc(bx0, PH - 1, pw - 1, 1, 4, u) : arc(bx0, PH - 1, gx + 2, PH - 2, 3, u))
+      } else if (!s.isFbMiss) {
+        // GOAL!
+        s.x = xk
+        const c = t - 8900
+        lift = Math.max(0, Math.round(Math.abs(Math.sin((c / 1000) * Math.PI * 2.4)) * 2))
+        pose.arms = 'up'
+        dots.push({ x: gx + 2 + (Math.floor(c / 300) % 2), y: PH - 1 - (c < 600 ? 1 : 0), color: BALL })
+        labels.push({ x: Math.min(w - 6, right() + 1), row: 1, text: 'GOAL!', color: GOLD })
+        if (tick % 4 < 2) labels.push({ x: cx() - 1, row: 0, text: '✦', color: GOLD })
+        else labels.push({ x: Math.min(w - 1, right() + 6), row: 0, text: '✦', color: GOLD })
+      } else {
+        // over the bar and into the box: oops, run over and fix it
+        const c = t - 8900
+        const fall = Math.min(1, c / 600)
+        dots.push(arc(pw - 1, 1, pw - 6, PH - 1, 0, fall))
+        if (c < 900) {
+          s.x = xk
+          pose.eyes = 'closed'
+          pose.arms = 'up'
+          shift = Math.floor(now / 60) % 2 === 0 ? 1 : -1
+          labels.push({ x: Math.min(w - 6, right() + 1), row: 1, text: 'oops!', color: RED })
+        } else if (c < 1700) {
+          s.x = xk + (maxX - xk) * ease((c - 900) / 800)
+          pose.eyes = 'right'
+          pose.legs = Math.floor(now / 70) % 2 === 0 ? 0 : 1
+        } else {
+          s.x = maxX
+          pose.eyes = 'right'
+          pose.arms = tick % 4 < 2 ? 'waveR' : 'down'
+          labels.push({ x: Math.max(0, cx() - 1), row: 0, text: 'sorry!', color: PINK })
+        }
+        // drive the box: a knock, the mess, then rows coming back one by one
+        s.bumpWant = c < 500 ? { phase: 'hit', step: 0 }
+          : c < 1700 ? { phase: 'scatter', step: Math.floor((c - 500) / 400) }
+          : c < 3000 ? { phase: 'rebuild', step: Math.min(10, Math.floor((c - 1700) / 120)) }
+          : { phase: 'none', step: 0 }
       }
     } else if (play === 'dance') {
       const beat = Math.floor(t / 300)
@@ -345,14 +499,18 @@ const frame = (now: number) => {
         pose.arms = 'up'
       }
     } else if (play === 'read') {
-      // nose in a book, peeking over it now and then, turning pages
-      // an open book held up: page corners raised, the fold shaded
+      // an open book held in both hands over the lower half: two rows of
+      // pages with the spine in the middle, every cell at most two colors;
+      // the eyes run along a line, jump back, and now and then a page turns
       const oy = PH - SPRITE_H
-      for (let x = 2; x <= 9; x++) dots.push({ x: ox + x, y: oy + 1, color: x >= 4 && x <= 7 ? FOLD : PAGE })
-      dots.push({ x: ox + 2, y: oy, color: PAGE }, { x: ox + 9, y: oy, color: PAGE })
-      pose.eyes = 'closed'
-      if (t % 3000 < 700) dots.push({ x: ox + 3, y: oy, color: EYE }, { x: ox + 8, y: oy, color: EYE })
-      if (t % 2500 > 2200) dots.push({ x: ox + 8, y: Math.max(0, oy - 1), color: PAGE })
+      pose.arms = 'hold'
+      const line = t % 1800
+      pose.eyes = line < 700 ? 'left' : line < 1400 ? 'center' : 'right'
+      for (let y = oy + 2; y <= oy + 3; y++) {
+        for (let x = 2; x <= 9; x++) dots.push({ x: ox + x, y, color: x === 5 || x === 6 ? FOLD : PAGE })
+      }
+      if (t % 5400 > 5000) dots.push({ x: ox + 6, y: oy + 1, color: PAGE }, { x: ox + 7, y: oy + 1, color: PAGE })
+      if (t % 9000 > 7600 && t % 9000 < 8400) labels.push({ x: right(), row: 1, text: '!', color: GOLD })
     } else if (play === 'visit') {
       // stroll over to the project box, knock, then lean in and peek
       s.target = maxX
@@ -438,13 +596,19 @@ const frame = (now: number) => {
       const look = Math.floor(now / 2300) % 5
       pose.eyes = look === 1 ? 'left' : look === 3 ? 'right' : 'center'
       if (tick % 70 === 0 && (tick / 70) % 3 === 1) s.target = Math.round(Math.random() * maxX)
+      if (tick % 150 === 75 && now - s.emote.at > 5000) {
+        const r = Math.random()
+        if (r < 0.25) s.emote = { kind: 'sneeze', at: now, arg: '' }
+        else if (r < 0.45) s.emote = { kind: 'hiccup', at: now, arg: '' }
+      }
     }
     if (tick % 45 === 0 || tick % 45 === 2) pose.eyes = 'closed'
   }
 
   if (now - s.helloAt < 2500) {
     pose.arms = tick % 4 < 2 ? 'waveL' : 'waveR'
-    labels.push({ x: right(), row: 1, text: 'hi!', color: GOLD })
+    const h = hourOf(now)
+    labels.push({ x: right(), row: 1, text: h >= 5 && h < 10 ? 'morning!' : h >= 22 || h < 5 ? 'evening!' : 'hi!', color: GOLD })
   }
   if (now - s.wokeAt < 900) {
     labels.push({ x: right(), row: 1, text: '!', color: GOLD })
@@ -452,7 +616,70 @@ const frame = (now: number) => {
     pose.eyes = 'center'
     pose.squash = false
   }
+  const em = s.emote
+  const et = now - em.at
+  if (et >= 0 && et < EMOTE_LEN[em.kind]) {
+    const hop = Math.max(0, Math.round(Math.sin((et / 1000) * Math.PI * 2.4) * 2))
+    if (em.kind === 'hello') {
+      pose.arms = tick % 4 < 2 ? 'waveL' : 'waveR'
+      labels.push({ x: right(), row: 1, text: 'szia!', color: GOLD })
+    } else if (em.kind === 'thanks' || em.kind === 'love') {
+      pose.eyes = 'closed'
+      pose.blush = true
+      pose.arms = em.kind === 'love' ? 'up' : 'down'
+      lift = em.kind === 'love' ? hop : 0
+      const k = Math.floor(et / 350)
+      labels.push({ x: right() + (k % 2), row: Math.max(0, 2 - (k % 3)), text: '♥', color: PINK })
+      labels.push({ x: cx() - 1 - (k % 2), row: Math.max(0, 2 - ((k + 1) % 3)), text: '♥', color: PINK })
+      if (em.arg !== '') labels.push({ x: Math.max(0, cx()), row: 0, text: em.arg, color: PINK })
+    } else if (em.kind === 'night') {
+      pose.arms = tick % 4 < 2 ? 'waveR' : 'down'
+      pose.eyes = 'closed'
+      labels.push({ x: right(), row: 1, text: 'night!', color: SLEEPY })
+    } else if (em.kind === 'oops') {
+      // a tool failed: wince and shake
+      shift = Math.floor(now / 60) % 2 === 0 ? 1 : -1
+      pose.eyes = 'closed'
+      pose.arms = 'up'
+      labels.push({ x: right() + 1, row: 1, text: '>_<', color: RED })
+    } else if (em.kind === 'commit') {
+      pose.arms = 'up'
+      lift = hop
+      labels.push({ x: Math.min(w - 8, right() + 1), row: 1, text: 'commit ✓', color: GREEN })
+    } else if (em.kind === 'push') {
+      // a big jump, dust where it left the ground
+      lift = Math.max(0, Math.round(Math.sin((et / EMOTE_LEN.push) * Math.PI) * 3))
+      pose.arms = 'up'
+      labels.push({ x: Math.min(w - 6, right() + 1), row: 1, text: 'push ↑', color: GOLD })
+      if (lift >= 2) labels.push({ x: cx() + 1, row: 3, text: '·  ·', color: DIM })
+    } else if (em.kind === 'combo') {
+      labels.push({ x: right(), row: 0, text: `x${em.arg}!`, color: GOLD })
+      labels.push({ x: tick % 2 === 0 ? cx() - 1 : right(), row: 1, text: '✦', color: GOLD })
+    } else if (em.kind === 'sneeze') {
+      // wind up... and out it comes
+      if (et < 500) {
+        pose.eyes = 'closed'
+        pose.squash = true
+        labels.push({ x: right(), row: 2, text: 'h…', color: DIM })
+      } else {
+        lift = et < 800 ? 1 : 0
+        shift = et < 700 ? -1 : 0
+        labels.push({ x: right(), row: 1, text: 'achoo!', color: GOLD })
+      }
+    } else {
+      lift = et < 200 ? 1 : 0
+      pose.eyes = 'center'
+      labels.push({ x: right(), row: 1, text: 'hic', color: DIM })
+    }
+  }
+  if (isNightAt(now)) pose.cap = true
+  if (now - s.petAt < 2200 && s.petStreak >= 3) {
+    // petted again and again: giggling hops
+    lift = Math.max(lift, Math.round(Math.abs(Math.sin(((now - s.petAt) / 1000) * Math.PI * 3)) * 2))
+    labels.push({ x: Math.max(0, cx()), row: 0, text: 'hehe!', color: PINK })
+  }
   if (now - s.petAt < 2200) {
+    pose.blush = true
     const k = Math.floor((now - s.petAt) / 300)
     labels.push({ x: cx() + 1 + (k % 3), row: Math.max(0, 1 - Math.floor(k / 3)), text: '♥', color: PINK })
     labels.push({ x: cx() + 4 - (k % 2), row: Math.max(0, 1 - Math.floor(k / 2)), text: '♥', color: PINK })
@@ -490,6 +717,12 @@ export const register: Register = on => {
       s.now = await $.clock.now()
       if (s.requestId === '' || !(await read($, isShown))) return
       const { cells } = frame(s.now)
+      const want = `${s.bumpWant.phase}:${s.bumpWant.step}`
+      if (want !== s.bumpSent) {
+        s.bumpSent = want
+        const value = s.bumpWant
+        await update($, bump, () => value)
+      }
       if (cells === s.lastFrame) return
       s.lastFrame = cells
       await $.ui.blit({ requestId: s.requestId, key: 'buddy', cells, columns: s.width, rows: ROWS })
@@ -502,8 +735,14 @@ export const register: Register = on => {
     return { text: shown ? 'Claude buddy is back.' : 'Claude buddy hidden. /buddy brings it back.' }
   })
   on('command.run', { command: 'pet' }, async $ => {
-    s.petAt = touch()
-    return { text: '♥' }
+    const now = touch()
+    s.petStreak = now - s.petAt < 4000 ? s.petStreak + 1 : 1
+    s.petAt = now
+    // pets are counted across sessions; every tenth is a little party
+    s.pets = Number((await $.store.get('pets')) ?? 0) + 1
+    await $.store.set('pets', s.pets)
+    if (s.pets % 10 === 0) s.emote = { kind: 'love', at: now, arg: `♥ x${s.pets}` }
+    return { text: `♥ (pet #${s.pets})` }
   })
 
   on('prompt.edit', async ($, e, next) => {
@@ -522,17 +761,35 @@ export const register: Register = on => {
     s.submitAt = touch()
     s.isWorking = true
     s.tools = 0
+    const greeting = greetingOf(e.text)
+    if (greeting !== undefined) s.emote = { kind: greeting, at: s.submitAt, arg: '' }
+    if (greeting === 'night') s.sleepAfterTurn = true
     return next(e)
   })
   on('tool.call', async ($, e, next) => {
     s.toolAt = touch()
     s.tools += 1
     s.toolName = e.tool.replace(/^mcp__[^_]+(_[^_]+)*__/, '').slice(0, 10)
-    return next(e)
+    if (COMBOS.includes(s.tools)) s.emote = { kind: 'combo', at: s.toolAt, arg: String(s.tools) }
+    const command = 'command' in e && typeof e.command === 'string' ? e.command : ''
+    const result = await next(e)
+    if ('isError' in result && result.isError === true) {
+      s.emote = { kind: 'oops', at: s.now, arg: '' }
+    } else if ('result' in result && /\bgit\s+push\b/.test(command)) {
+      s.emote = { kind: 'push', at: s.now, arg: '' }
+    } else if ('result' in result && /\bgit\s+commit\b/.test(command)) {
+      s.emote = { kind: 'commit', at: s.now, arg: '' }
+    }
+    return result
   })
   on('turn.complete', async ($, e, next) => {
     s.doneAt = touch()
     s.isWorking = false
+    if (s.sleepAfterTurn) {
+      // said good night: celebrate the answer, yawn, then sleep
+      s.sleepAfterTurn = false
+      s.lastActive = s.doneAt - SLEEP_MS + 5500
+    }
     return next(e)
   })
 
@@ -543,7 +800,11 @@ export const register: Register = on => {
     s.requestId = e.requestId
     // follow the project box: react to what changed since the last draw, and
     // stretch the stage up to the box's left edge so the critter can reach it
-    const [cat, pick, hidden] = await Promise.all([read($, projCat), read($, projPick), read($, projHidden)])
+    const [cat, pick, hidden, { narrow, wide, stack }] = await Promise.all([read($, projCat), read($, projPick), read($, projHidden), read($, projLayout)])
+    const cols = e.props.bodyColumns
+    // a half-screen window or a phone over SSH: the box stacks above the band
+    // (project-box), and the critter takes a row of its own above the rest
+    const isNarrow = cols < (stack || narrow + 42)
     if (s.isProjSeen) {
       const happen = (ev: ProjEvent, arg = '') => {
         s.projEvent = ev
@@ -554,13 +815,20 @@ export const register: Register = on => {
       else if (pick !== s.projPick && pick !== '') happen('pick', pick)
       else if (cat !== s.projCat) happen(cat === '' ? 'close' : 'open', cat)
     }
-    Object.assign(s, { isProjSeen: true, projCat: cat, projPick: pick, projHidden: hidden })
-    const cols = e.props.bodyColumns
-    const box = hidden ? 0 : (cat === '' ? PROJ_NARROW : Math.min(PROJ_WIDE, Math.max(PROJ_NARROW, cols - 40))) + 2
-    s.width = Math.max(SPRITE_W + 8, cols - box - 1)
+    Object.assign(s, { isProjSeen: true, projCat: cat, projPick: pick, projHidden: hidden, isBoxBeside: !hidden && !isNarrow })
+    const box = !s.isBoxBeside ? 0 : (cat === '' ? narrow : Math.min(wide, Math.max(narrow, cols - 40))) + 2
+    s.width = Math.max(SPRITE_W + 4, cols - box - 1)
     s.isWorking = s.isWorking || e.props.isWorking
     const { cells } = frame(s.now)
     s.lastFrame = cells
+    if (isNarrow) {
+      return (
+        <Box flexDirection="column">
+          <Raster key="buddy" columns={s.width} rows={ROWS} cells={cells} />
+          {below}
+        </Box>
+      )
+    }
     // The critter floats bottom-left, just above the band's last row (the
     // status line), so a tall neighbour (a box beside the status bar) never
     // pushes it up and away, whichever plugin wraps whom. An empty strut keeps
